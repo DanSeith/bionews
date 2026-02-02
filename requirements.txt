@@ -1,0 +1,8 @@
+arxiv
+feedparser
+jinja2
+openai
+aiohttp
+python-dateutil
+pytz
+requests
