@@ -7,17 +7,24 @@ import arxiv
 import feedparser
 import aiohttp
 from jinja2 import Environment, FileSystemLoader
-from openai import OpenAI
+import google.generativeai as genai
 import pytz
 from dateutil import parser
+from dotenv import load_dotenv
+
+# Load local .env if it exists
+load_dotenv()
 
 # Configuration
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-def get_openai_client():
-    if not OPENAI_API_KEY:
+def get_gemini_model():
+    if not GEMINI_API_KEY:
         return None
-    return OpenAI(api_key=OPENAI_API_KEY)
+    genai.configure(api_key=GEMINI_API_KEY)
+    # Using Gemini 1.5 Flash for speed and cost-efficiency
+    model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
+    return model
 
 ARXIV_QUERIES = [
     "protein design",
@@ -80,7 +87,6 @@ async def fetch_biorxiv_papers():
             if response.status == 200:
                 data = await response.json()
                 papers = []
-                # Simple keyword filtering for BioRxiv as API doesn't support complex queries well
                 keywords = ["protein", "molecular", "cheminformatics", "alphafold", "diffusion"]
                 for item in data.get("collection", []):
                     title_lower = item["title"].lower()
@@ -102,7 +108,6 @@ async def fetch_rss_feeds():
     for source, url in RSS_FEEDS.items():
         feed = feedparser.parse(url)
         for entry in feed.entries[:10]:
-            # Try to get published date
             published = None
             if hasattr(entry, 'published_parsed'):
                 published = datetime(*entry.published_parsed[:6], tzinfo=pytz.utc)
@@ -119,35 +124,33 @@ async def fetch_rss_feeds():
     return articles
 
 async def summarize_articles(articles):
-    """Use LLM to summarize and score articles."""
+    """Use Gemini to summarize and score articles."""
     if not articles:
         return []
 
-    client = get_openai_client()
-    if not client:
-        print("Warning: No OpenAI API key found. Skipping summarization.")
-        return articles # Return raw articles if no key
+    model = get_gemini_model()
+    if not model:
+        print("Warning: No Gemini API key found. Returning raw articles.")
+        return [{**a, "relevance_score": 7, "summary": a["summary"][:200]} for a in articles]
+
+    print(f"Summarizing {len(articles)} articles with Gemini...")
+    summarized = []
     
-    # Process in batches of 5 to avoid long prompts and timeouts
     for i in range(0, len(articles), 5):
         batch = articles[i:i+5]
-        prompt = "Summarize the following biotech/research articles. For each, return a JSON object with 'title', 'summary' (max 2 sentences), 'tags', and 'relevance_score' (1-10). Keep the density high and tone professional.\n\n"
+        prompt = "Summarize the following biotech/research articles. Return a JSON list of objects with 'title', 'summary' (max 2 sentences), 'tags', and 'relevance_score' (1-10). Keep the density high.\n\n"
         for idx, art in enumerate(batch):
             prompt += f"--- Article {idx+1} ---\nTitle: {art['title']}\nContent: {art['summary'][:1000]}\n\n"
         
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a biotech research analyst. Return ONLY a JSON list of objects."},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"}
-            )
+            response = model.generate_content(prompt)
+            batch_results = json.loads(response.text)
             
-            batch_results = json.loads(response.choices[0].message.content)
-            # Expecting {"articles": [...]}
-            results_list = batch_results.get("articles", batch_results.get("results", []))
+            # Gemini JSON mode usually returns the list directly or wrapped
+            if isinstance(batch_results, dict):
+                results_list = batch_results.get("articles", batch_results.get("results", []))
+            else:
+                results_list = batch_results
             
             for idx, res in enumerate(results_list):
                 if res.get("relevance_score", 0) >= 6:
@@ -155,8 +158,7 @@ async def summarize_articles(articles):
                     res["source"] = batch[idx]["source"]
                     summarized.append(res)
         except Exception as e:
-            print(f"Error in summarization: {e}")
-            # Fallback to raw if LLM fails
+            print(f"Error in Gemini summarization: {e}")
             for art in batch:
                 summarized.append({
                     "title": art["title"],
@@ -174,27 +176,20 @@ async def generate_molecule_of_day():
     molecule = random.choice(MOLECULES)
     print(f"Generating profile for {molecule}...")
     
-    client = get_openai_client()
-    if not client:
+    model = get_gemini_model()
+    if not model:
         return {
             "name": molecule,
-            "discovery": "Login to view discovery details.",
-            "mechanism": "Mechanism of action summary.",
-            "significance": "Clinical significance overview."
+            "discovery": "API Key missing.",
+            "mechanism": "Please check configuration.",
+            "significance": "Mechanism of action summary."
         }
 
-    prompt = f"Write a '1-minute read' profile for the drug/molecule: {molecule}. Include 'discovery story', 'mechanism of action', and 'why it matters'. Tone: sophisticated, industry-insider (DrugHunter style). Return JSON with keys: 'name', 'discovery', 'mechanism', 'significance'."
+    prompt = f"Write a '1-minute read' profile for {molecule}. Include 'discovery story', 'mechanism of action', and 'why it matters'. Tone: industry-insider. Return JSON with keys: 'name', 'discovery', 'mechanism', 'significance'."
     
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": "You are a medicinal chemist and industry expert. Return ONLY JSON."},
-                {"role": "user", "content": prompt}
-            ],
-            response_format={"type": "json_object"}
-        )
-        return json.loads(response.choices[0].message.content)
+        response = model.generate_content(prompt)
+        return json.loads(response.text)
     except Exception as e:
         print(f"Error generating molecule: {e}")
         return {
@@ -205,26 +200,16 @@ async def generate_molecule_of_day():
         }
 
 async def main():
-    # 1. Fetch data
-    research_papers = await asyncio.gather(
-        fetch_arxiv_papers(),
-        fetch_biorxiv_papers()
-    )
+    research_papers = await asyncio.gather(fetch_arxiv_papers(), fetch_biorxiv_papers())
     all_research = research_papers[0] + research_papers[1]
-    
     business_news = await fetch_rss_feeds()
     
-    # 2. Summarize and Rank
     summarized_research = await summarize_articles(all_research)
     summarized_business = await summarize_articles(business_news)
-    
-    # 3. Molecule of the Day
     molecule = await generate_molecule_of_day()
     
-    # 4. Render HTML
     env = Environment(loader=FileSystemLoader('templates'))
     template = env.get_template('index.html')
-    
     output = template.render(
         molecule=molecule,
         research=summarized_research,

@@ -1,8 +1,9 @@
 arxiv
 feedparser
 jinja2
-openai
+google-generativeai
 aiohttp
 python-dateutil
 pytz
 requests
+python-dotenv
