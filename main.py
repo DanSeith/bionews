@@ -2,6 +2,7 @@ import asyncio
 import json
 import os
 import random
+import time
 from datetime import datetime, timedelta
 import arxiv
 import feedparser
@@ -39,10 +40,9 @@ RSS_FEEDS = {
 }
 
 MOLECULES = [
-    "Keytruda (Pembrolizumab)", "Thalidomide", "Imatinib (Gleevec)", "Aspirin",
-    "Humira (Adalimumab)", "Metformin", "Penicillin", "Insulin",
-    "Ozempic (Semaglutide)", "Paxlovid", "Epipen", "Sildenafil",
-    "Prozac (Fluoxetine)", "Lipitor (Atorvastatin)", "Remicade"
+    "Thalidomide", "Imatinib", "Aspirin", "Metformin", "Penicillin G", 
+    "Semaglutide", "Sildenafil", "Fluoxetine", "Atorvastatin", "Paclitaxel",
+    "Methotrexate", "Caffeine", "Morphine", "Ibuprofen", "Warfarin"
 ]
 
 async def fetch_arxiv_papers():
@@ -135,6 +135,10 @@ async def summarize_articles(articles):
     summarized = []
     
     for i in range(0, len(articles), 5):
+        # Rate limit to avoid 429 errors
+        if i > 0:
+            time.sleep(2)
+            
         batch = articles[i:i+5]
         prompt = "Summarize the following biotech/research articles. Return a JSON list of objects with 'title', 'summary' (max 2 sentences), 'tags', and 'relevance_score' (1-10). Keep the density high.\n\n"
         for idx, art in enumerate(batch):
@@ -184,21 +188,70 @@ async def summarize_articles(articles):
                 
     return summarized
 
-async def generate_molecule_of_day():
-    """Generate a DrugHunter-style profile for a random molecule."""
-    molecule = random.choice(MOLECULES)
-    print(f"Generating profile for {molecule}...")
+async def fetch_pubchem_data(molecule_name):
+    """Fetch structure image and basic properties from PubChem."""
+    # Clean name: "Ozempic (Semaglutide)" -> "Semaglutide", "Keytruda (Pembrolizumab)" -> "Pembrolizumab"
+    # If generic is in parens, use that.
+    clean_name = molecule_name
+    if "(" in molecule_name:
+        # Extract text inside parens
+        import re
+        match = re.search(r'\((.*?)\)', molecule_name)
+        if match:
+            clean_name = match.group(1)
     
+    base_url = "https://pubchem.ncbi.nlm.nih.gov/rest/pug"
+    print(f"Fetching PubChem data for {clean_name} (from {molecule_name})...")
+    
+    async with aiohttp.ClientSession() as session:
+        # 1. Get CID
+        cid_url = f"{base_url}/compound/name/{clean_name}/cids/JSON"
+        async with session.get(cid_url) as resp:
+            if resp.status != 200:
+                print(f"Failed to find CID for {clean_name}")
+                return None
+            try:
+                data = await resp.json()
+                cid = data['IdentifierList']['CID'][0]
+            except (KeyError, IndexError, TypeError):
+                 print(f"Error parsing CID data for {clean_name}")
+                 return None
+
+        # 2. Get Properties
+        props_url = f"{base_url}/compound/cid/{cid}/property/MolecularFormula,MolecularWeight,IUPACName,IsomericSMILES/JSON"
+        async with session.get(props_url) as resp:
+            if resp.status != 200:
+                props = {}
+            else:
+                data = await resp.json()
+                props = data['PropertyTable']['Properties'][0]
+
+    image_url = f"{base_url}/compound/cid/{cid}/PNG?record_type=2d&image_size=large"
+    
+    return {
+        "cid": cid,
+        "image_url": image_url,
+        "formula": props.get("MolecularFormula", "N/A"),
+        "weight": props.get("MolecularWeight", "N/A"),
+        "iupac": props.get("IUPACName", "N/A"),
+        "smiles": props.get("IsomericSMILES", "N/A")
+    }
+
+async def generate_global_summary(articles, paper_count, feed_count):
+    """Generate a news.smol.ai style 'Top of the Fold' summary."""
     client = get_gemini_client()
     if not client:
         return {
-            "name": molecule,
-            "discovery": "API Key missing.",
-            "mechanism": "Please check configuration.",
-            "significance": "Mechanism of action summary."
+            "stats": f"Scanned {paper_count} papers and {feed_count} news feeds.",
+            "vibe": "AI summarization unavailable. Check API key."
         }
-
-    prompt = f"Write a '1-minute read' profile for {molecule}. Include 'discovery story', 'mechanism of action', and 'why it matters'. Tone: industry-insider. Return JSON with keys: 'name', 'discovery', 'mechanism', 'significance'."
+        
+    titles = [a['title'] for a in articles[:8]] # Just top 8 for context
+    prompt = f"""
+    Write a witty, 2-sentence 'Daily Vibe' summary for a biotech dashboard based on these headlines: {titles}.
+    Start with a bold claim or observation.
+    Format as JSON: {{"vibe": "..."}}
+    """
     
     try:
         response = client.models.generate_content(
@@ -208,14 +261,73 @@ async def generate_molecule_of_day():
                 response_mime_type='application/json',
             ),
         )
-        return json.loads(response.text)
+        data = json.loads(response.text)
+        return {
+            "stats": f"We scanned {paper_count} research papers and {feed_count} industry news feeds.",
+            "vibe": data.get("vibe", "Biotech never sleeps.")
+        }
+    except Exception as e:
+        print(f"Error generating summary: {e}")
+        return {
+            "stats": f"Scanned {paper_count} papers.",
+            "vibe": "Today's biotech landscape at a glance."
+        }
+
+async def generate_molecule_of_day():
+    """Generate a DrugHunter-style profile for a random molecule."""
+    molecule = random.choice(MOLECULES)
+    print(f"Generating profile for {molecule}...")
+    
+    # Fetch real chemical data
+    pubchem_data = await fetch_pubchem_data(molecule)
+    
+    client = get_gemini_client()
+    if not client:
+        return {
+            "name": molecule,
+            "image": pubchem_data.get('image_url') if pubchem_data else "",
+            "discovery": "API Key missing.",
+            "mechanism": "Please check configuration.",
+            "significance": "Mechanism of action summary.",
+            "properties": pubchem_data
+        }
+
+    prompt = f"""
+    Write a sophisticated 'Molecule of the Day' profile for {molecule}.
+    Target Audience: Medicinal Chemists.
+    Include:
+    1. 'discovery': The origin story or key hit-to-lead realization.
+    2. 'mechanism': Detailed MOA (mention specific residues or binding pockets if known).
+    3. 'significance': Why this molecule matters (e.g. 'First in class', 'Solved solubility issue').
+    
+    Return JSON with keys: 'name', 'discovery', 'mechanism', 'significance'.
+    """
+    
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type='application/json',
+            ),
+        )
+        mol_data = json.loads(response.text)
+        if isinstance(mol_data, list):
+            mol_data = mol_data[0]
+            
+        mol_data['image'] = pubchem_data.get('image_url') if pubchem_data else ""
+        mol_data['properties'] = pubchem_data
+        return mol_data
+        
     except Exception as e:
         print(f"Error generating molecule: {e}")
         return {
             "name": molecule,
-            "discovery": "A landmark therapeutic discovery.",
-            "mechanism": "Consult pharmacopeia for details.",
-            "significance": "Foundational therapy in its class."
+            "image": pubchem_data.get('image_url') if pubchem_data else "",
+            "discovery": "Error generating profile.",
+            "mechanism": "Consult pharmacopeia.",
+            "significance": "Consult literature.",
+            "properties": pubchem_data
         }
 
 async def main():
@@ -223,6 +335,13 @@ async def main():
     all_research = research_papers[0] + research_papers[1]
     business_news = await fetch_rss_feeds()
     
+    # Generate Global Summary
+    global_summary = await generate_global_summary(
+        all_research + business_news, 
+        len(all_research), 
+        len(business_news)
+    )
+
     summarized_research = await summarize_articles(all_research)
     summarized_business = await summarize_articles(business_news)
     molecule = await generate_molecule_of_day()
@@ -230,6 +349,7 @@ async def main():
     env = Environment(loader=FileSystemLoader('templates'))
     template = env.get_template('index.html')
     output = template.render(
+        summary=global_summary,
         molecule=molecule,
         research=summarized_research,
         business=summarized_business,
