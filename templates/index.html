@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BioSmol | Biotech News Aggregator</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@1/css/pico.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono&display=swap"
+        rel="stylesheet">
+    <style>
+        :root {
+            --primary: #10b981;
+            --secondary: #64748b;
+            --background: #f8fafc;
+            --surface: #ffffff;
+            --text-main: #0f172a;
+            --font-family: 'Inter', sans-serif;
+            --code-font: 'JetBrains+Mono', monospace;
+        }
+
+        body {
+            font-size: 15px;
+            background-color: var(--background);
+            color: var(--text-main);
+            font-family: var(--font-family);
+            line-height: 1.6;
+        }
+
+        main.container {
+            max-width: 1100px;
+            padding-top: 2rem;
+        }
+
+        h1,
+        h2,
+        h3,
+        h4 {
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--text-main);
+        }
+
+        header {
+            margin-bottom: 3rem;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+        }
+
+        h1.logo {
+            font-size: 2.5rem;
+            margin: 0;
+            background: linear-gradient(135deg, #0f172a 0%, #334155 100%);
+            background-clip: text;
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .date {
+            color: var(--secondary);
+            font-family: var(--code-font);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.9rem;
+        }
+
+        /* Top Summary Section */
+        .summary-card {
+            background: var(--surface);
+            border: 1px solid #e2e8f0;
+            border-left: 4px solid var(--primary);
+            padding: 1.5rem;
+            margin-bottom: 3rem;
+            border-radius: 4px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+        }
+
+        .summary-stats {
+            font-family: var(--code-font);
+            font-size: 0.8rem;
+            color: var(--secondary);
+            margin-bottom: 0.5rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .summary-vibe {
+            font-size: 1.2rem;
+            font-weight: 600;
+            font-style: italic;
+            color: #334155;
+        }
+
+        /* Molecule Card */
+        .molecule-card {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            margin-bottom: 3rem;
+            overflow: hidden;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+        }
+
+        .molecule-header {
+            background: #0f172a;
+            color: white;
+            padding: 1rem 1.5rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .molecule-header h2 {
+            color: var(--primary);
+            margin: 0;
+            font-family: var(--code-font);
+        }
+
+        .molecule-label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: #94a3b8;
+        }
+
+        .molecule-content {
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 2rem;
+            padding: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .molecule-content {
+                grid-template-columns: 1fr;
+            }
+
+            .molecule-image {
+                margin: 0 auto;
+            }
+        }
+
+        .molecule-image {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: flex-start;
+        }
+
+        .molecule-image img {
+            max-width: 100%;
+            height: auto;
+            border: 1px solid #f1f5f9;
+            padding: 1rem;
+            background: white;
+            border-radius: 4px;
+        }
+
+        .chem-props {
+            width: 100%;
+            margin-top: 1rem;
+            font-family: var(--code-font);
+            font-size: 0.75rem;
+            color: #64748b;
+        }
+
+        .chem-prop-row {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px solid #f1f5f9;
+            padding: 4px 0;
+        }
+
+        .chem-prop-label {
+            font-weight: 600;
+        }
+
+        .molecule-text h4 {
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #64748b;
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+            border-bottom: 1px solid #e2e8f0;
+            padding-bottom: 0.25rem;
+        }
+
+        .molecule-text h4:first-child {
+            margin-top: 0;
+        }
+
+        .molecule-text p {
+            font-size: 1rem;
+            line-height: 1.6;
+            color: #334155;
+            margin-bottom: 0;
+        }
+
+        /* News Grid */
+        .news-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+        }
+
+        @media (max-width: 768px) {
+            .news-section {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .section-title {
+            font-size: 1.5rem;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .article {
+            margin-bottom: 2rem;
+            padding-bottom: 1.5rem;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        .article:last-child {
+            border-bottom: none;
+        }
+
+        .article-title {
+            font-weight: 700;
+            font-size: 1.15rem;
+            margin-bottom: 0.5rem;
+            display: block;
+            color: #0f172a;
+            text-decoration: none;
+            line-height: 1.4;
+        }
+
+        .article-title:hover {
+            color: var(--primary);
+        }
+
+        .article-meta {
+            font-size: 0.75rem;
+            color: #64748b;
+            margin-bottom: 0.75rem;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.5rem;
+            align-items: center;
+        }
+
+        .tag {
+            background: #f1f5f9;
+            color: #475569;
+            padding: 2px 8px;
+            border-radius: 99px;
+            font-weight: 600;
+            font-size: 0.7rem;
+        }
+
+        .score {
+            color: var(--primary);
+            font-weight: 700;
+            font-family: var(--code-font);
+        }
+
+        .article-summary {
+            font-size: 0.95rem;
+            line-height: 1.6;
+            color: #475569;
+        }
+
+        footer {
+            margin-top: 5rem;
+            text-align: center;
+            font-size: 0.8rem;
+            color: #94a3b8;
+            padding-bottom: 3rem;
+            border-top: 1px solid #e2e8f0;
+            padding-top: 2rem;
+        }
+    </style>
+</head>
+
+<body>
+    <main class="container">
+        <header>
+            <h1 class="logo">BioSmol</h1>
+            <div class="date">{{ date }}</div>
+        </header>
+
+        <!-- Top of Fold Summary -->
+        <section class="summary-card">
+            <div class="summary-stats">{{ summary.stats }}</div>
+            <div class="summary-vibe">"{{ summary.vibe }}"</div>
+        </section>
+
+        <!-- Molecule of the Day -->
+        <section class="molecule-card">
+            <div class="molecule-header">
+                <span class="molecule-label">Molecule of the Day</span>
+                <h2>{{ molecule.name }}</h2>
+            </div>
+            <div class="molecule-content">
+                <div class="molecule-image">
+                    {% if molecule.image %}
+                    <img src="{{ molecule.image }}" alt="{{ molecule.name }} Structure">
+                    {% else %}
+                    <div style="padding: 2rem; background: #f8fafc; color: #94a3b8; text-align: center;">No Image
+                        Available</div>
+                    {% endif %}
+
+                    {% if molecule.properties %}
+                    <div class="chem-props">
+                        <div class="chem-prop-row">
+                            <span class="chem-prop-label">MW</span>
+                            <span>{{ molecule.properties.weight }}</span>
+                        </div>
+                        <div class="chem-prop-row">
+                            <span class="chem-prop-label">Formula</span>
+                            <span>{{ molecule.properties.formula }}</span>
+                        </div>
+                        {% if molecule.properties.smiles != "N/A" %}
+                        <div class="chem-prop-row" style="display:block; padding-top: 8px;">
+                            <span class="chem-prop-label">SMILES</span>
+                            <div
+                                style="font-size: 0.65rem; overflow-wrap: break-word; line-height: 1.2; margin-top:2px;">
+                                {{ molecule.properties.smiles }}</div>
+                        </div>
+                        {% endif %}
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="molecule-text">
+                    <h4>Discovery Story</h4>
+                    <p>{{ molecule.discovery }}</p>
+
+                    <h4>Mechanism of Action</h4>
+                    <p>{{ molecule.mechanism }}</p>
+
+                    <h4>Significance</h4>
+                    <p>{{ molecule.significance }}</p>
+                </div>
+            </div>
+        </section>
+
+        <div class="news-section">
+            <section>
+                <h3 class="section-title">🧬 Tech & ML Research</h3>
+                {% for art in research %}
+                <div class="article">
+                    <a href="{{ art.link }}" target="_blank" class="article-title">{{ art.title }}</a>
+                    <div class="article-meta">
+                        <span class="score">S: {{ art.relevance_score }}/10</span>
+                        {% for tag in art.tags %}
+                        <span class="tag">{{ tag }}</span>
+                        {% endfor %}
+                        <span>• {{ art.source }}</span>
+                    </div>
+                    <div class="article-summary">{{ art.summary }}</div>
+                </div>
+                {% endfor %}
+            </section>
+
+            <section>
+                <h3 class="section-title">💼 Biotech Business</h3>
+                {% for art in business %}
+                <div class="article">
+                    <a href="{{ art.link }}" target="_blank" class="article-title">{{ art.title }}</a>
+                    <div class="article-meta">
+                        <span class="score">S: {{ art.relevance_score }}/10</span>
+                        {% for tag in art.tags %}
+                        <span class="tag">{{ tag }}</span>
+                        {% endfor %}
+                        <span>• {{ art.source }}</span>
+                    </div>
+                    <div class="article-summary">{{ art.summary }}</div>
+                </div>
+                {% endfor %}
+            </section>
+        </div>
+
+        <footer>
+            Generated by BioSmol via GitHub Actions. Data from ArXiv, BioRxiv, FierceBiotech, FDA, and Stat News.
+        </footer>
+    </main>
+</body>
+
+</html>

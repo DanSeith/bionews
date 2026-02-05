@@ -4,6 +4,8 @@ __pycache__/
 venv/
 .env
 .vscode/
-index.html
+/index.html
 test_index.html
 test_pipeline.py
+public/
+list_models.py
