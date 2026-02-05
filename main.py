@@ -7,7 +7,8 @@ import arxiv
 import feedparser
 import aiohttp
 from jinja2 import Environment, FileSystemLoader
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 import pytz
 from dateutil import parser
 from dotenv import load_dotenv
@@ -18,13 +19,10 @@ load_dotenv()
 # Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-def get_gemini_model():
+def get_gemini_client():
     if not GEMINI_API_KEY:
         return None
-    genai.configure(api_key=GEMINI_API_KEY)
-    # Using Gemini 1.5 Flash for speed and cost-efficiency
-    model = genai.GenerativeModel('gemini-1.5-flash', generation_config={"response_mime_type": "application/json"})
-    return model
+    return genai.Client(api_key=GEMINI_API_KEY)
 
 ARXIV_QUERIES = [
     "protein design",
@@ -128,12 +126,12 @@ async def summarize_articles(articles):
     if not articles:
         return []
 
-    model = get_gemini_model()
-    if not model:
+    client = get_gemini_client()
+    if not client:
         print("Warning: No Gemini API key found. Returning raw articles.")
         return [{**a, "relevance_score": 7, "summary": a["summary"][:200]} for a in articles]
 
-    print(f"Summarizing {len(articles)} articles with Gemini...")
+    print(f"Summarizing {len(articles)} articles with Gemini (genai)...")
     summarized = []
     
     for i in range(0, len(articles), 5):
@@ -143,20 +141,35 @@ async def summarize_articles(articles):
             prompt += f"--- Article {idx+1} ---\nTitle: {art['title']}\nContent: {art['summary'][:1000]}\n\n"
         
         try:
-            response = model.generate_content(prompt)
+            response = client.models.generate_content(
+                model='gemini-2.0-flash',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type='application/json',
+                ),
+            )
+            
+            # Use json.loads because response.parsed doesn't work the same in all SDK versions
             batch_results = json.loads(response.text)
             
-            # Gemini JSON mode usually returns the list directly or wrapped
             if isinstance(batch_results, dict):
-                results_list = batch_results.get("articles", batch_results.get("results", []))
+                results_list = batch_results.get("articles", batch_results.get("results", batch_results.get("list", [])))
+                # If still dict and looks like a list might be indexed or something, handle it
+                if not results_list and len(batch_results) > 0 and all(isinstance(v, dict) for v in batch_results.values()):
+                     results_list = list(batch_results.values())
             else:
                 results_list = batch_results
             
+            if not isinstance(results_list, list):
+                print(f"Unexpected JSON format from Gemini: {batch_results}")
+                results_list = []
+
             for idx, res in enumerate(results_list):
-                if res.get("relevance_score", 0) >= 6:
-                    res["link"] = batch[idx]["link"]
-                    res["source"] = batch[idx]["source"]
-                    summarized.append(res)
+                if idx < len(batch):
+                    if res.get("relevance_score", 0) >= 6:
+                        res["link"] = batch[idx]["link"]
+                        res["source"] = batch[idx]["source"]
+                        summarized.append(res)
         except Exception as e:
             print(f"Error in Gemini summarization: {e}")
             for art in batch:
@@ -176,8 +189,8 @@ async def generate_molecule_of_day():
     molecule = random.choice(MOLECULES)
     print(f"Generating profile for {molecule}...")
     
-    model = get_gemini_model()
-    if not model:
+    client = get_gemini_client()
+    if not client:
         return {
             "name": molecule,
             "discovery": "API Key missing.",
@@ -188,7 +201,13 @@ async def generate_molecule_of_day():
     prompt = f"Write a '1-minute read' profile for {molecule}. Include 'discovery story', 'mechanism of action', and 'why it matters'. Tone: industry-insider. Return JSON with keys: 'name', 'discovery', 'mechanism', 'significance'."
     
     try:
-        response = model.generate_content(prompt)
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type='application/json',
+            ),
+        )
         return json.loads(response.text)
     except Exception as e:
         print(f"Error generating molecule: {e}")
