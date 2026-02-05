@@ -30,20 +30,18 @@ ARXIV_QUERIES = [
     "molecular generation",
     "cheminformatics",
     "alphafold",
-    "diffusion model"
+    "diffusion model",
+    "drug discovery ml"
 ]
+
+ARXIV_CATEGORIES = ["q-bio.BM", "cs.LG", "q-bio.QM"]
 
 RSS_FEEDS = {
     "FierceBiotech": "https://www.fiercebiotech.com/rss/biotech",
     "FDA": "https://www.fda.gov/about-fda/contact-fda/stay-informed/rss-feeds/press-releases/rss.xml",
-    "Stat News": "https://www.statnews.com/category/biotech/feed"
+    "Stat News": "https://www.statnews.com/category/biotech/feed",
+    "Endpoints News": "https://endpts.com/feed/"
 }
-
-MOLECULES = [
-    "Thalidomide", "Imatinib", "Aspirin", "Metformin", "Penicillin G", 
-    "Semaglutide", "Sildenafil", "Fluoxetine", "Atorvastatin", "Paclitaxel",
-    "Methotrexate", "Caffeine", "Morphine", "Ibuprofen", "Warfarin"
-]
 
 async def fetch_arxiv_papers():
     """Fetch ArXiv papers from the last 24 hours."""
@@ -65,7 +63,7 @@ async def fetch_arxiv_papers():
                     "summary": result.summary,
                     "link": result.entry_id,
                     "source": "ArXiv",
-                    "tags": [t.term for t in result.tags]
+                    "tags": result.categories
                 })
     return papers
 
@@ -98,6 +96,34 @@ async def fetch_biorxiv_papers():
                         })
                 return papers
             return []
+
+async def fetch_reddit_posts():
+    """Fetch top posts from r/biotech and r/chempros."""
+    subreddits = ["biotech", "chempros"]
+    posts = []
+    headers = {"User-Agent": "BioSmolBot/1.0"}
+    
+    print("Fetching Reddit posts...")
+    async with aiohttp.ClientSession() as session:
+        for sub in subreddits:
+            url = f"https://www.reddit.com/r/{sub}/top.json?t=day&limit=5"
+            try:
+                async with session.get(url, headers=headers) as resp:
+                    if resp.status == 200:
+                        data = await resp.json()
+                        for item in data['data']['children']:
+                            p = item['data']
+                            posts.append({
+                                "title": p['title'],
+                                "summary": p['selftext'][:500] + "..." if p['selftext'] else "Link post",
+                                "link": f"https://www.reddit.com{p['permalink']}",
+                                "source": f"r/{sub}",
+                                "tags": ["Community"],
+                                "relevance_score": 7 # Default high for community signal
+                            })
+            except Exception as e:
+                print(f"Error fetching r/{sub}: {e}")
+    return posts
 
 async def fetch_rss_feeds():
     """Fetch RSS feeds."""
@@ -246,10 +272,12 @@ async def generate_global_summary(articles, paper_count, feed_count):
             "vibe": "AI summarization unavailable. Check API key."
         }
         
-    titles = [a['title'] for a in articles[:8]] # Just top 8 for context
+    titles = [a['title'] for a in articles[:15]] 
     prompt = f"""
-    Write a witty, 2-sentence 'Daily Vibe' summary for a biotech dashboard based on these headlines: {titles}.
-    Start with a bold claim or observation.
+    Write a 2-3 sentence 'Daily Vibe' summary for a biotech dashboard based on these headlines: {titles}.
+    Tone: Sophisticated, skeptical, industry-insider (Chemistry/Pharma PhD level). 
+    Avoid: Childish metaphors (no "Legos"), cringe jokes, or over-enthusiasm. 
+    Focus on: Market sentiment, scientific trends, or reality checks.
     Format as JSON: {{"vibe": "..."}}
     """
     
@@ -263,7 +291,7 @@ async def generate_global_summary(articles, paper_count, feed_count):
         )
         data = json.loads(response.text)
         return {
-            "stats": f"We scanned {paper_count} research papers and {feed_count} industry news feeds.",
+            "stats": f"Scanned {paper_count} papers and {feed_count} industry sources.",
             "vibe": data.get("vibe", "Biotech never sleeps.")
         }
     except Exception as e:
@@ -273,9 +301,34 @@ async def generate_global_summary(articles, paper_count, feed_count):
             "vibe": "Today's biotech landscape at a glance."
         }
 
+async def get_dynamic_molecule_candidate():
+    """Ask Gemini for a clinically significant small molecule to feature."""
+    client = get_gemini_client()
+    if not client:
+        return "Caffeine" # Fallback
+        
+    prompt = """
+    Propose 1 small molecule drug (organic chemistry) that is clinically significant, recently approved (2020-2025), or currently hot in medicinal chemistry literature (e.g. KRAS inhibitors, protacs, molecular glues).
+    Do NOT choose: Aspirin, Caffeine, Tylenol, or ancient generics.
+    Return JSON: {"molecule": "Name"}
+    """
+    try:
+        response = client.models.generate_content(
+            model='gemini-2.0-flash',
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type='application/json',
+            ),
+        )
+        data = json.loads(response.text)
+        return data.get("molecule", "Sotorasib")
+    except Exception:
+        return "Sotorasib"
+
 async def generate_molecule_of_day():
-    """Generate a DrugHunter-style profile for a random molecule."""
-    molecule = random.choice(MOLECULES)
+    """Generate a DrugHunter-style profile for a dynamic molecule."""
+    # 1. Get a fresh candidate
+    molecule = await get_dynamic_molecule_candidate()
     print(f"Generating profile for {molecule}...")
     
     # Fetch real chemical data
@@ -333,17 +386,21 @@ async def generate_molecule_of_day():
 async def main():
     research_papers = await asyncio.gather(fetch_arxiv_papers(), fetch_biorxiv_papers())
     all_research = research_papers[0] + research_papers[1]
+    
     business_news = await fetch_rss_feeds()
+    reddit_posts = await fetch_reddit_posts()
+    
+    all_news = business_news + reddit_posts
     
     # Generate Global Summary
     global_summary = await generate_global_summary(
-        all_research + business_news, 
+        all_research + all_news, 
         len(all_research), 
-        len(business_news)
+        len(all_news)
     )
 
     summarized_research = await summarize_articles(all_research)
-    summarized_business = await summarize_articles(business_news)
+    summarized_business = await summarize_articles(all_news)
     molecule = await generate_molecule_of_day()
     
     env = Environment(loader=FileSystemLoader('templates'))
