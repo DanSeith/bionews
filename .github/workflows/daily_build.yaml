@@ -33,8 +33,5 @@ jobs:
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./
+          publish_dir: ./public
           publish_branch: gh-pages
-          keep_files: true
-          # Deploy only the index.html and maybe assets if we had any
-          exclude_assets: '.github/**,main.py,requirements.txt,templates/**,task.md' 

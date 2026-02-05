@@ -418,9 +418,12 @@ async def main():
         date=datetime.now().strftime("%B %d, %Y")
     )
     
-    with open("index.html", "w") as f:
+    # Create public directory if it doesn't exist
+    os.makedirs("public", exist_ok=True)
+    
+    with open("public/index.html", "w") as f:
         f.write(output)
-    print("Dashboard generated: index.html")
+    print("Dashboard generated: public/index.html")
 
 if __name__ == "__main__":
     asyncio.run(main())
