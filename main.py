@@ -26,12 +26,13 @@ def get_gemini_client():
     return genai.Client(api_key=GEMINI_API_KEY)
 
 ARXIV_QUERIES = [
-    "protein design",
-    "molecular generation",
-    "cheminformatics",
-    "alphafold",
-    "diffusion model",
-    "drug discovery ml"
+    "ti:\"protein design\"",
+    "ti:\"molecular generation\"",
+    "ti:\"cheminformatics\"",
+    "ti:\"alphafold\"",
+    "ti:\"diffusion model\" AND (cat:q-bio.BM OR cat:cs.LG)",
+    "ti:\"drug discovery\" AND cat:cs.LG",
+    "ti:\"boltz\" AND cat:q-bio.BM" # Specific check for Boltz-1 types
 ]
 
 ARXIV_CATEGORIES = ["q-bio.BM", "cs.LG", "q-bio.QM"]
@@ -308,8 +309,12 @@ async def get_dynamic_molecule_candidate():
         return "Caffeine" # Fallback
         
     prompt = """
-    Propose 1 small molecule drug (organic chemistry) that is clinically significant, recently approved (2020-2025), or currently hot in medicinal chemistry literature (e.g. KRAS inhibitors, protacs, molecular glues).
-    Do NOT choose: Aspirin, Caffeine, Tylenol, or ancient generics.
+    Propose 1 small molecule drug (organic chemistry) that is either:
+    1. A recent significant approval (2020-2025)
+    2. A "Hot" mechanism (e.g. molecular glue, KRAS, radioligand)
+    3. A NOTABLE FAIL or withdrawal (e.g. unexpected toxicity, Phase 3 bust).
+    
+    Do NOT choose: Aspirin, Caffeine, Tylenol, or standard ancient generics.
     Return JSON: {"molecule": "Name"}
     """
     try:
@@ -349,9 +354,9 @@ async def generate_molecule_of_day():
     Write a sophisticated 'Molecule of the Day' profile for {molecule}.
     Target Audience: Medicinal Chemists.
     Include:
-    1. 'discovery': The origin story or key hit-to-lead realization.
+    1. 'discovery': Key dates (Year discovered/approved) and origin story.
     2. 'mechanism': Detailed MOA (mention specific residues or binding pockets if known).
-    3. 'significance': Why this molecule matters (e.g. 'First in class', 'Solved solubility issue').
+    3. 'significance': Why this molecule matters (e.g. 'First in class', 'Safety withdrawal lesson', 'Solved solubility issue').
     
     Return JSON with keys: 'name', 'discovery', 'mechanism', 'significance'.
     """
