@@ -167,7 +167,13 @@ async def summarize_articles(articles):
             time.sleep(2)
             
         batch = articles[i:i+5]
-        prompt = "Summarize the following biotech/research articles. Return a JSON list of objects with 'title', 'summary' (max 2 sentences), 'tags', and 'relevance_score' (1-10). Keep the density high.\n\n"
+        prompt = """Summarize the following biotech/research articles. Return a JSON list of objects with 'title', 'summary' (max 2 sentences), 'tags', and 'relevance_score' (1-10).
+        SCORING CRITERIA:
+        - 10: HISTORIC/BREAKING (e.g. AlphaFold 4 release, >$10B Merger, Major FDA Approval/Rejection). This gets featured at the top.
+        - 8-9: High Impact (e.g. Phase 3 reads, >$1B deal, SOTA ML Paper).
+        - 6-7: Standard Industry News.
+        - <6: Noise/PR fluff.
+        """
         for idx, art in enumerate(batch):
             prompt += f"--- Article {idx+1} ---\nTitle: {art['title']}\nContent: {art['summary'][:1000]}\n\n"
         
@@ -197,10 +203,10 @@ async def summarize_articles(articles):
 
             for idx, res in enumerate(results_list):
                 if idx < len(batch):
-                    if res.get("relevance_score", 0) >= 6:
-                        res["link"] = batch[idx]["link"]
-                        res["source"] = batch[idx]["source"]
-                        summarized.append(res)
+                    # We keep everything >= 6, but filtered usually happens later or we allow high recall here
+                    res["link"] = batch[idx]["link"]
+                    res["source"] = batch[idx]["source"]
+                    summarized.append(res)
         except Exception as e:
             print(f"Error in Gemini summarization: {e}")
             for art in batch:
@@ -273,12 +279,15 @@ async def generate_global_summary(articles, paper_count, feed_count):
             "vibe": "AI summarization unavailable. Check API key."
         }
         
-    titles = [a['title'] for a in articles[:15]] 
+    titles = [a['title'] for a in articles[:15] if a.get('relevance_score', 0) > 7]
     prompt = f"""
-    Write a 2-3 sentence 'Daily Vibe' summary for a biotech dashboard based on these headlines: {titles}.
-    Tone: Sophisticated, skeptical, industry-insider (Chemistry/Pharma PhD level). 
-    Avoid: Childish metaphors (no "Legos"), cringe jokes, or over-enthusiasm. 
-    Focus on: Market sentiment, scientific trends, or reality checks.
+    Write a 2-3 sentence 'Daily Vibe' summary for a biotech dashboard based on these high-impact headlines: {titles}.
+    
+    INSTRUCTIONS:
+    - If the list is empty or contains only minor news, explicitly state: "Quiet day in the industry." or "Slow news day." and suggest a general theme (e.g. "Focus remains on macro trends").
+    - If there are MAJOR headlines, summarize the key event immediately.
+    - Tone: Sophisticated, skeptical, industry-insider.
+    
     Format as JSON: {{"vibe": "..."}}
     """
     
@@ -414,12 +423,27 @@ async def main():
 
     summarized_research = await summarize_articles(all_research)
     summarized_business = await summarize_articles(all_news)
-    molecule = await generate_molecule_of_day()
+    # Filter Hero Article
+    summarized_all = summarized_research + summarized_business
+    hero_article = None
     
+    # Sort by score descending
+    summarized_all.sort(key=lambda x: x.get("relevance_score", 0), reverse=True)
+    
+    # If top article is highly relevant (>= 9), promote it
+    if summarized_all and summarized_all[0].get("relevance_score", 0) >= 9:
+        hero_article = summarized_all[0]
+        # Remove from regular lists so it's not duplicated
+        if hero_article in summarized_research:
+            summarized_research.remove(hero_article)
+        if hero_article in summarized_business:
+            summarized_business.remove(hero_article)
+            
     env = Environment(loader=FileSystemLoader('templates'))
     template = env.get_template('index.html')
     output = template.render(
         summary=global_summary,
+        hero_article=hero_article,
         molecule=molecule,
         research=summarized_research,
         business=summarized_business,
