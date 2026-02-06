@@ -344,7 +344,9 @@ async def generate_molecule_of_day():
         return {
             "name": molecule,
             "image": pubchem_data.get('image_url') if pubchem_data else "",
-            "discovery": "API Key missing.",
+            "year_discovered": "N/A",
+            "year_approved": "N/A",
+            "origin_story": "API Key missing.",
             "mechanism": "Please check configuration.",
             "significance": "Mechanism of action summary.",
             "properties": pubchem_data
@@ -353,12 +355,16 @@ async def generate_molecule_of_day():
     prompt = f"""
     Write a sophisticated 'Molecule of the Day' profile for {molecule}.
     Target Audience: Medicinal Chemists.
-    Include:
-    1. 'discovery': Key dates (Year discovered/approved) and origin story.
-    2. 'mechanism': Detailed MOA (mention specific residues or binding pockets if known).
-    3. 'significance': Why this molecule matters (e.g. 'First in class', 'Safety withdrawal lesson', 'Solved solubility issue').
     
-    Return JSON with keys: 'name', 'discovery', 'mechanism', 'significance'.
+    Return ONLY JSON with these exact keys:
+    {{
+      "name": "{molecule}",
+      "year_discovered": "YYYY (concise, e.g. '2003')",
+      "year_approved": "YYYY or 'N/A' (concise, e.g. '2023')",
+      "origin_story": "One sentence on the discovery/lead optimization (max 20 words).",
+      "mechanism": "MOA - mention specific target/pocket (max 25 words).",
+      "significance": "Why it matters/Market impact (max 20 words)."
+    }}
     """
     
     try:
@@ -382,7 +388,9 @@ async def generate_molecule_of_day():
         return {
             "name": molecule,
             "image": pubchem_data.get('image_url') if pubchem_data else "",
-            "discovery": "Error generating profile.",
+            "year_discovered": "Error",
+            "year_approved": "Error",
+            "origin_story": "Error generating profile.",
             "mechanism": "Consult pharmacopeia.",
             "significance": "Consult literature.",
             "properties": pubchem_data

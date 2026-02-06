@@ -338,8 +338,17 @@
                     {% endif %}
                 </div>
                 <div class="molecule-text">
-                    <h4>Discovery Story</h4>
-                    <p>{{ molecule.discovery }}</p>
+                    <h4>Discovery & Development</h4>
+                    <div
+                        style="display: flex; gap: 2rem; margin-bottom: 1rem; font-family: var(--code-font); font-weight: 600;">
+                        <div><span
+                                style="color: var(--secondary); font-size: 0.8rem; text-transform: uppercase;">Discovered:</span><br>{{
+                            molecule.year_discovered }}</div>
+                        <div><span
+                                style="color: var(--secondary); font-size: 0.8rem; text-transform: uppercase;">Approved:</span><br>{{
+                            molecule.year_approved }}</div>
+                    </div>
+                    <p>{{ molecule.origin_story }}</p>
 
                     <h4>Mechanism of Action</h4>
                     <p>{{ molecule.mechanism }}</p>
