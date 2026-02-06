@@ -5,9 +5,9 @@ on:
     - cron: '30 10 * * *' # 5:30 AM EST (10:30 UTC)
   workflow_dispatch: # Allow manual trigger
 
-# Permissions needed for GitHub Pages
+# Permissions needed for GitHub Pages and committing history
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -32,6 +32,14 @@ jobs:
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python main.py
+
+      - name: Commit history
+        run: |
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add molecule_history.json
+          git commit -m "Update molecule history [skip ci]" || echo "No changes to commit"
+          git push
 
       - name: Upload Pages Artifact
         uses: actions/upload-pages-artifact@v3

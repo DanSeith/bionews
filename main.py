@@ -317,14 +317,27 @@ async def get_dynamic_molecule_candidate():
     if not client:
         return "Caffeine" # Fallback
         
-    prompt = """
+    history_file = "molecule_history.json"
+    history = []
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, 'r') as f:
+                history = json.load(f)
+        except Exception:
+            history = []
+
+    exclude_list = ", ".join(history[-30:]) if history else "None"
+    
+    prompt = f"""
     Propose 1 small molecule drug (organic chemistry) that is either:
     1. A recent significant approval (2020-2025)
     2. A "Hot" mechanism (e.g. molecular glue, KRAS, radioligand)
     3. A NOTABLE FAIL or withdrawal (e.g. unexpected toxicity, Phase 3 bust).
     
     Do NOT choose: Aspirin, Caffeine, Tylenol, or standard ancient generics.
-    Return JSON: {"molecule": "Name"}
+    ALSO, do NOT choose any of these recently featured molecules: {exclude_list}.
+    
+    Return JSON: {{"molecule": "Name"}}
     """
     try:
         response = client.models.generate_content(
@@ -345,6 +358,21 @@ async def generate_molecule_of_day():
     molecule = await get_dynamic_molecule_candidate()
     print(f"Generating profile for {molecule}...")
     
+    # Save to history
+    history_file = "molecule_history.json"
+    history = []
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, 'r') as f:
+                history = json.load(f)
+        except Exception:
+            history = []
+    
+    if molecule not in history:
+        history.append(molecule)
+        with open(history_file, 'w') as f:
+            json.dump(history, f, indent=2)
+
     # Fetch real chemical data
     pubchem_data = await fetch_pubchem_data(molecule)
     
@@ -423,6 +451,7 @@ async def main():
 
     summarized_research = await summarize_articles(all_research)
     summarized_business = await summarize_articles(all_news)
+    molecule = await generate_molecule_of_day()
     # Filter Hero Article
     summarized_all = summarized_research + summarized_business
     hero_article = None
