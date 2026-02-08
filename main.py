@@ -164,7 +164,7 @@ async def summarize_articles(articles):
     for i in range(0, len(articles), 5):
         # Rate limit to avoid 429 errors
         if i > 0:
-            time.sleep(2)
+            time.sleep(1) # Minimal buffer for paid tier
             
         batch = articles[i:i+5]
         prompt = """Summarize the following biotech/research articles. Return a JSON list of objects with 'title', 'summary' (max 2 sentences), 'tags', and 'relevance_score' (1-10).
@@ -328,17 +328,27 @@ async def get_dynamic_molecule_candidate():
 
     exclude_list = ", ".join(history[-30:]) if history else "None"
     
+    COOL_FALLBACKS = [
+        "Sotorasib", "Niraparib", "Risdiplam", "Venetoclax", 
+        "Ubrogepant", "Capmatinib", "Tepotinib", "Lonafarnib"
+    ]
+    fallback = random.choice([m for m in COOL_FALLBACKS if m not in history] or COOL_FALLBACKS)
+
     prompt = f"""
-    Propose 1 small molecule drug (organic chemistry) that is either:
+    Propose 1 SMALL MOLECULE drug (organic chemistry, <1000 Da) that is either:
     1. A recent significant approval (2020-2025)
     2. A "Hot" mechanism (e.g. molecular glue, KRAS, radioligand)
     3. A NOTABLE FAIL or withdrawal (e.g. unexpected toxicity, Phase 3 bust).
     
+    CRITICAL: Avoid biologics (mAbs, proteins, gene therapy). Must have a PubChem CID.
     Do NOT choose: Aspirin, Caffeine, Tylenol, or standard ancient generics.
     ALSO, do NOT choose any of these recently featured molecules: {exclude_list}.
     
     Return JSON: {{"molecule": "Name"}}
     """
+    
+    # Remove artificial delay for paid tier
+    
     try:
         response = client.models.generate_content(
             model='gemini-2.0-flash',
@@ -348,9 +358,12 @@ async def get_dynamic_molecule_candidate():
             ),
         )
         data = json.loads(response.text)
-        return data.get("molecule", "Sotorasib")
-    except Exception:
-        return "Sotorasib"
+        if isinstance(data, list) and len(data) > 0:
+            data = data[0]
+        return data.get("molecule", fallback) if isinstance(data, dict) else fallback
+    except Exception as e:
+        print(f"Gemini Candidate API Error: {e}")
+        return fallback
 
 async def generate_molecule_of_day():
     """Generate a DrugHunter-style profile for a dynamic molecule."""
@@ -372,6 +385,9 @@ async def generate_molecule_of_day():
         history.append(molecule)
         with open(history_file, 'w') as f:
             json.dump(history, f, indent=2)
+
+    # Minimal 1s delay for paid tier burst protection
+    time.sleep(1)
 
     # Fetch real chemical data
     pubchem_data = await fetch_pubchem_data(molecule)
