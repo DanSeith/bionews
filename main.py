@@ -406,17 +406,17 @@ async def generate_molecule_of_day():
         }
 
     prompt = f"""
-    Write a sophisticated 'Molecule of the Day' profile for {molecule}.
-    Target Audience: Medicinal Chemists.
+    Write a sophisticated, narrative 'Molecule of the Day' profile for {molecule}.
+    Target Audience: Medicinal Chemists and Pharma Industry Insiders.
     
     Return ONLY JSON with these exact keys:
     {{
       "name": "{molecule}",
       "year_discovered": "YYYY (concise, e.g. '2003')",
       "year_approved": "YYYY or 'N/A' (concise, e.g. '2023')",
-      "origin_story": "One sentence on the discovery/lead optimization (max 20 words).",
-      "mechanism": "MOA - mention specific target/pocket (max 25 words).",
-      "significance": "Why it matters/Market impact (max 20 words)."
+      "origin_story": "A 4-6 sentence narrative of its discovery. Mention the chemical starting point (e.g., a natural product, HTS hit, or fragment), key SAR breakthroughs during lead optimization, and how scientists overcame specific challenges like metabolic stability or selectivity.",
+      "mechanism": "A 4-6 sentence technical description of the MOA. Describe the binding site in detail (active vs. allosteric), specific residues involved, the conformational state induced (e.g., induced fit, DFG-out), and the downstream biochemical impact.",
+      "significance": "A 4-6 sentence reflection on its impact. Discuss its place in the clinical landscape, commercial trajectory, or why it’s a 'teaching moment' for medicinal chemistry (e.g., a masterclass in bioisosterism or addressing an 'undruggable' target)."
     }}
     """
     
