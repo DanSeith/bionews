@@ -19,11 +19,8 @@ load_dotenv()
 
 # Configuration
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-
-def get_gemini_client():
-    if not GEMINI_API_KEY:
-        return None
-    return genai.Client(api_key=GEMINI_API_KEY)
+USER_AGENT = "BioSmolBot/1.0 (https://github.com/danseith/bionews)"
+HEADERS = {"User-Agent": USER_AGENT}
 
 ARXIV_QUERIES = [
     "ti:\"protein design\"",
@@ -44,33 +41,50 @@ RSS_FEEDS = {
     "Endpoints News": "https://endpts.com/feed/"
 }
 
+def get_gemini_client():
+    if not GEMINI_API_KEY:
+        return None
+    return genai.Client(api_key=GEMINI_API_KEY)
+
 async def fetch_arxiv_papers():
-    """Fetch ArXiv papers from the last 24 hours."""
+    """Fetch ArXiv papers from the last 24 hours with polite scraping practices."""
     print("Fetching ArXiv papers...")
-    search_client = arxiv.Client()
     papers = []
     since = datetime.now(pytz.utc) - timedelta(days=1)
     
-    for query in ARXIV_QUERIES:
-        search = arxiv.Search(
-            query=query,
-            max_results=10,
-            sort_by=arxiv.SortCriterion.SubmittedDate
-        )
-        for result in search_results(search_client, search):
-            if result.published > since:
-                papers.append({
-                    "title": result.title,
-                    "summary": result.summary,
-                    "link": result.entry_id,
-                    "source": "ArXiv",
-                    "tags": result.categories
-                })
+    # Combined query to minimize requests to ArXiv (safer and faster)
+    combined_query = " OR ".join([f"({q})" for q in ARXIV_QUERIES])
+    
+    # We use aiohttp directly to have full control over Headers (User-Agent, Accept)
+    # This avoids the HTTP 406 errors sometimes seen with the arxiv library's default headers.
+    from urllib.parse import quote
+    url = f"https://export.arxiv.org/api/query?search_query={quote(combined_query)}&max_results=100&sortBy=submittedDate&sortOrder=descending"
+    
+    try:
+        # ArXiv recommends identifying yourself in the User-Agent
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, headers=HEADERS, timeout=30) as resp:
+                if resp.status == 200:
+                    content = await resp.text()
+                    feed = feedparser.parse(content)
+                    for entry in feed.entries:
+                        # entry.published is a string like '2024-02-11T12:00:00Z'
+                        published = parser.parse(entry.published)
+                        if published > since:
+                            tags = [t.term for t in entry.tags] if hasattr(entry, 'tags') else []
+                            papers.append({
+                                "title": entry.title,
+                                "summary": entry.summary,
+                                "link": entry.link,
+                                "source": "ArXiv",
+                                "tags": tags
+                            })
+                else:
+                    print(f"⚠️ ArXiv API returned status {resp.status}")
+    except Exception as e:
+        print(f"⚠️ ArXiv fetch failed: {e}")
+    
     return papers
-
-def search_results(client, search):
-    """Bridge for arxiv library to get results."""
-    return client.results(search)
 
 async def fetch_biorxiv_papers():
     """Fetch BioRxiv papers from the last 24 hours via API."""
@@ -80,7 +94,7 @@ async def fetch_biorxiv_papers():
     url = f"https://api.biorxiv.org/details/biorxiv/{yesterday}/{today}/0/json"
     
     async with aiohttp.ClientSession() as session:
-        async with session.get(url) as response:
+        async with session.get(url, headers=HEADERS) as response:
             if response.status == 200:
                 data = await response.json()
                 papers = []
@@ -102,7 +116,7 @@ async def fetch_reddit_posts():
     """Fetch top posts from r/biotech and r/chempros."""
     subreddits = ["biotech", "chempros"]
     posts = []
-    headers = {"User-Agent": "BioSmolBot/1.0"}
+    headers = HEADERS
     
     print("Fetching Reddit posts...")
     async with aiohttp.ClientSession() as session:
@@ -127,25 +141,33 @@ async def fetch_reddit_posts():
     return posts
 
 async def fetch_rss_feeds():
-    """Fetch RSS feeds."""
+    """Fetch RSS feeds using identifying headers."""
     print("Fetching RSS feeds...")
     articles = []
-    for source, url in RSS_FEEDS.items():
-        feed = feedparser.parse(url)
-        for entry in feed.entries[:10]:
-            published = None
-            if hasattr(entry, 'published_parsed'):
-                published = datetime(*entry.published_parsed[:6], tzinfo=pytz.utc)
-            
-            since = datetime.now(pytz.utc) - timedelta(days=1)
-            if not published or published > since:
-                articles.append({
-                    "title": entry.title,
-                    "summary": entry.get("summary", "") or entry.get("description", ""),
-                    "link": entry.link,
-                    "source": source,
-                    "tags": [source]
-                })
+    
+    async with aiohttp.ClientSession() as session:
+        for source, url in RSS_FEEDS.items():
+            try:
+                async with session.get(url, headers=HEADERS, timeout=20) as resp:
+                    if resp.status == 200:
+                        content = await resp.text()
+                        feed = feedparser.parse(content)
+                        for entry in feed.entries[:10]:
+                            published = None
+                            if hasattr(entry, 'published_parsed'):
+                                published = datetime(*entry.published_parsed[:6], tzinfo=pytz.utc)
+                            
+                            since = datetime.now(pytz.utc) - timedelta(days=1)
+                            if not published or published > since:
+                                articles.append({
+                                    "title": entry.title,
+                                    "summary": entry.get("summary", "") or entry.get("description", ""),
+                                    "link": entry.link,
+                                    "source": source,
+                                    "tags": [source]
+                                })
+            except Exception as e:
+                print(f"Error fetching RSS feed {source}: {e}")
     return articles
 
 async def summarize_articles(articles):
@@ -239,7 +261,7 @@ async def fetch_pubchem_data(molecule_name):
     async with aiohttp.ClientSession() as session:
         # 1. Get CID
         cid_url = f"{base_url}/compound/name/{clean_name}/cids/JSON"
-        async with session.get(cid_url) as resp:
+        async with session.get(cid_url, headers=HEADERS) as resp:
             if resp.status != 200:
                 print(f"Failed to find CID for {clean_name}")
                 return None
@@ -252,7 +274,7 @@ async def fetch_pubchem_data(molecule_name):
 
         # 2. Get Properties
         props_url = f"{base_url}/compound/cid/{cid}/property/MolecularFormula,MolecularWeight,IUPACName,IsomericSMILES/JSON"
-        async with session.get(props_url) as resp:
+        async with session.get(props_url, headers=HEADERS) as resp:
             if resp.status != 200:
                 props = {}
             else:
